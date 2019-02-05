@@ -19,14 +19,47 @@ import fnss
 
 from icarus.registry import CACHE_POLICY
 from icarus.util import path_links, iround
+from enum import Enum
 
 __all__ = [
     'NetworkModel',
     'NetworkView',
-    'NetworkController'
+    'NetworkController',
+    'Event',
+    'Packet_Type'
           ]
 
 logger = logging.getLogger('orchestration')
+
+class Packet_Type(Enum):
+    INTEREST = 0
+    DATA = 1
+
+#TODO: move this class somewhere else
+class Event(object):
+    """Implementation of packet-level events, i.e., arrival of a packet at a node"""
+
+    def __init__(self, time, receiver, content, node, flow_id, packet_type):
+        """Constructor
+        Parameters
+        ----------
+        time : Arrival time of the request
+        receiver : Origin of the flow 
+        node : current location of the packet
+        flow_id : the id of the flow that the request is belong to
+        """
+        self.time = time
+        self.receiver = receiver
+        self.node = node
+        self.content = content
+        self.flow_id = flow_id
+        self.packet_type = packet_type
+
+    def __cmp__(self, other):
+        """
+        This method is used by the heapify() method to sort Events
+        """
+        return cmp(self.time, other.time)
 
 def symmetrify_paths(shortest_paths):
     """Make paths symmetric
@@ -196,6 +229,12 @@ class NetworkView(object):
         """
         return self.model.link_delay[(u, v)]
 
+    def eventQ(self):                                                                    
+        """Return the event queue                                                        
+        """                                                                              
+                                                                                         
+        return self.model.eventQ   
+
     def topology(self):
         """Return the network topology
 
@@ -356,6 +395,9 @@ class NetworkModel(object):
         self.content_source = {}
         # Dictionary mapping the reverse, i.e. nodes to set of contents stored
         self.source_node = {}
+
+        # A heap with per-packet arrival events (see Event class above)
+        self.eventQ = []
 
         # Dictionary of link types (internal/external)
         self.link_type = nx.get_edge_attributes(topology, 'type')
@@ -612,6 +654,12 @@ class NetworkController(object):
         """
         if node in self.model.cache:
             return self.model.cache[node].remove(self.session['content'])
+
+    def add_event(self, time, receiver, content, node, flow_id, packet_type):
+        """Add an arrival event to the eventQ
+        """
+        e = Event(time, receiver, content, node, flow_id, packet_type)
+        heapq.heappush(self.model.eventQ, e)
 
     def end_session(self, success=True):
         """Close a session

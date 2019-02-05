@@ -21,6 +21,7 @@ import random
 import csv
 
 import networkx as nx
+import heapq
 
 from icarus.tools import TruncatedZipfDist
 from icarus.registry import register_workload
@@ -107,15 +108,30 @@ class StationaryWorkload(object):
     def __iter__(self):
         req_counter = 0
         t_event = 0.0
+
         while req_counter < self.n_warmup + self.n_measured:
             t_event += (random.expovariate(self.rate))
+            eventObj = self.model.eventQ[0] if len(self.model.eventQ) > 0 else None
+            while eventObj is not None and eventObj.time < t_event:
+                heapq.heappop(self.model.eventQ)
+                log = (req_counter >= self.n_warmup)
+                event = {'receiver' : eventObj.receiver, 'content': eventObj.service, 'log' : log, 'node' : eventObj.node, 'flow_id' : eventObj.flow_id, 'packet_type' : eventObj.packet_type}
+                yield (eventObj.time, event)
+                eventObj = self.model.eventQ[0] if len(self.model.eventQ) > 0 else None
+
+            if req_counter >= (self.n_warmup + self.n_measured):
+                # skip below if we already sent all the requests
+                continue
+
             if self.beta == 0:
                 receiver = random.choice(self.receivers)
             else:
                 receiver = self.receivers[self.receiver_dist.rv() - 1]
+            node = receiver
             content = int(self.zipf.rv())
             log = (req_counter >= self.n_warmup)
-            event = {'receiver': receiver, 'content': content, 'log': log}
+            flow_id += 1
+            event = {'receiver': receiver, 'content' : content, 'log' : log, 'node' : node, 'flow_id': req_counter, 'packet_type' : Packet_Type.INTEREST}
             yield (t_event, event)
             req_counter += 1
         raise StopIteration()
